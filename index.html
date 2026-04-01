@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Mölkky - Trajectoire Premium</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; }
+        #game-container { position: relative; width: 100%; height: 100%; }
+        #matter-canvas { position: absolute; top: 0; left: 0; z-index: 1; }
+        #ui-canvas { position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none; }
+        #hud {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            color: white; pointer-events: none; z-index: 10;
+        }
+        .score { font-size: 2.5rem; color: #FFD700; margin: 0; font-weight: bold; text-shadow: 0 0 10px rgba(255,215,0,0.5); }
+        .stats { font-size: 0.9rem; background: rgba(0,0,0,0.6); display: inline-block; padding: 8px 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); }
+        #msg-points { font-size: 1.5rem; color: #00f2fe; margin-top: 10px; font-weight: bold; height: 30px;}
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="matter-canvas"></canvas>
+    <canvas id="ui-canvas"></canvas>
+    <div id="hud">
+        <p class="score"><span id="val-score">0</span> / 50</p>
+        <div class="stats">
+            Lancers : <span id="val-lancers">0</span> | 
+            Fautes : <span id="val-fautes">0</span>/3
+        </div>
+        <div id="msg-points"></div>
+    </div>
+</div>
+
+<script>
+const { Engine, Render, Runner, Bodies, Composite, Constraint, Mouse, MouseConstraint, Vector, Events, Body } = Matter;
+
+const engine = Engine.create();
+const world = engine.world;
+const width = window.innerWidth;
+const height = window.innerHeight;
+
+const matterCanvas = document.getElementById('matter-canvas');
+const uiCanvas = document.getElementById('ui-canvas');
+const uiCtx = uiCanvas.getContext('2d');
+
+matterCanvas.width = uiCanvas.width = width;
+matterCanvas.height = uiCanvas.height = height;
+
+const render = Render.create({
+    canvas: matterCanvas,
+    engine: engine,
+    options: { width, height, wireframes: false, background: '#1a1a2e' }
+});
+
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+// --- SOL ---
+const ground = Bodies.rectangle(width/2, height - 10, width * 10, 40, { 
+    isStatic: true, render: { fillStyle: '#1b5e20' }, friction: 0.8 
+});
+Composite.add(world, ground);
+
+// --- QUILLES ---
+let pins = [];
+function initMolkky() {
+    const startX = width * 0.35; 
+    const spacing = 45; 
+    for (let i = 1; i <= 12; i++) {
+        const hue = (i * 30) % 360; 
+        const pinColor = `hsl(${hue}, 70%, 75%)`; 
+
+        const pin = Bodies.rectangle(startX + (i * spacing), height - 30, 14, 40, {
+            restitution: 0.3, friction: 0.3, density: 0.001,
+            render: { fillStyle: pinColor, strokeStyle: '#ffffff', lineWidth: 1 }
+        });
+        pin.value = i;
+        pins.push(pin);
+        Composite.add(world, pin);
+    }
+}
+
+// --- LANCEUR ---
+let baton, sling;
+const anchor = { x: 150, y: height - 150 }; 
+const STIFFNESS = 0.04;
+
+function createBaton() {
+    baton = Bodies.rectangle(anchor.x, anchor.y, 45, 10, {
+        density: 0.02, frictionAir: 0.005,
+        render: { fillStyle: '#ff4b2b' }
+    });
+    Body.setMass(baton, baton.mass * 2);
+    
+    sling = Constraint.create({
+        pointA: anchor, bodyB: baton, stiffness: STIFFNESS, length: 0.1,
+        render: { visible: false }
+    });
+    Composite.add(world, [baton, sling]);
+}
+
+const mouse = Mouse.create(matterCanvas);
+const mc = MouseConstraint.create(engine, { mouse, constraint: { stiffness: 0.1, render: { visible: false } } });
+Composite.add(world, mc);
+
+// --- VISUALISATION DE LA TRAJECTOIRE (AMÉLIORÉE) ---
+Events.on(render, 'afterRender', () => {
+    uiCtx.clearRect(0, 0, width, height);
+    
+    // Numéros des quilles
+    pins.forEach(p => {
+        if (Math.abs(p.angle) < 0.8) {
+            uiCtx.save();
+            uiCtx.translate(p.position.x, p.position.y);
+            uiCtx.fillStyle = "#1a1a2e";
+            uiCtx.font = "bold 12px sans-serif";
+            uiCtx.textAlign = "center";
+            uiCtx.fillText(p.value, 0, 4);
+            uiCtx.restore();
+        }
+    });
+
+    if (mc.body === baton && sling.bodyB) {
+        const dist = Vector.sub(anchor, baton.position);
+        let vx = (dist.x * STIFFNESS) / baton.mass;
+        let vy = (dist.y * STIFFNESS) / baton.mass;
+        let px = baton.position.x;
+        let py = baton.position.y;
+        const gravity = engine.gravity.y * engine.gravity.scale;
+        
+        uiCtx.save();
+        
+        // Création d'un dégradé pour la ligne
+        const gradient = uiCtx.createLinearGradient(anchor.x, anchor.y, anchor.x + dist.x * 5, anchor.y + dist.y * 5);
+        gradient.addColorStop(0, "rgba(0, 242, 254, 1)");
+        gradient.addColorStop(1, "rgba(0, 242, 254, 0)");
+
+        uiCtx.beginPath();
+        uiCtx.strokeStyle = gradient;
+        uiCtx.lineWidth = 4;
+        uiCtx.lineCap = "round";
+        uiCtx.moveTo(px, py);
+
+        // Simulation de la courbe
+        for (let i = 0; i < 100; i++) {
+            vx *= (1 - baton.frictionAir);
+            vy *= (1 - baton.frictionAir);
+            vy += gravity;
+            px += vx;
+            py += vy;
+
+            // On dessine des points espacés au lieu d'une ligne continue pour un effet "viseur"
+            if (i % 4 === 0) {
+                uiCtx.lineTo(px, py);
+            } else {
+                uiCtx.moveTo(px, py);
+            }
+
+            // Impact au sol
+            if (py > height - 30) {
+                uiCtx.stroke();
+                
+                // Dessin de l'impact (Halo lumineux)
+                uiCtx.beginPath();
+                uiCtx.arc(px, py, 15, 0, Math.PI * 2);
+                uiCtx.fillStyle = "rgba(0, 242, 254, 0.3)";
+                uiCtx.fill();
+                uiCtx.strokeStyle = "#00f2fe";
+                uiCtx.lineWidth = 2;
+                uiCtx.stroke();
+                
+                // Petit point central d'impact
+                uiCtx.beginPath();
+                uiCtx.arc(px, py, 3, 0, Math.PI * 2);
+                uiCtx.fillStyle = "#fff";
+                uiCtx.fill();
+                break;
+            }
+        }
+        uiCtx.stroke();
+        uiCtx.restore();
+    }
+});
+
+// --- LOGIQUE DE JEU ---
+let score = 0, lancers = 0, fautes = 0, isFired = false;
+
+Events.on(mc, 'enddrag', (e) => { if (e.body === baton) isFired = true; });
+
+Events.on(engine, 'afterUpdate', () => {
+    if (isFired && Vector.magnitude(Vector.sub(baton.position, anchor)) > 20) {
+        if (Vector.magnitude(baton.velocity) > 3) { 
+            Composite.remove(world, sling);
+            Body.setAngularVelocity(baton, 0.15);
+            isFired = false; 
+            lancers++;
+            document.getElementById('val-lancers').innerText = lancers;
+            setTimeout(resolveTurn, 3500); 
+        }
+    }
+});
+
+function resolveTurn() {
+    let fallen = pins.filter(p => Math.abs(p.angle) > 0.8);
+    let pts = (fallen.length === 1) ? fallen[0].value : fallen.length;
+    if (pts === 0) fautes++; else fautes = 0;
+    score += pts;
+    if (score > 50) score = 25;
+
+    fallen.forEach(p => {
+        Body.setPosition(p, { x: p.position.x, y: height - 30 });
+        Body.setAngle(p, 0); 
+        Body.setVelocity(p, { x: 0, y: 0 });
+        Body.setAngularVelocity(p, 0);
+    });
+
+    document.getElementById('val-score').innerText = score;
+    document.getElementById('val-fautes').innerText = fautes;
+    document.getElementById('msg-points').innerText = pts > 0 ? "+" + pts + " pts !" : "Manqué !";
+
+    if (fautes >= 3) { alert("3 Fautes ! Terminé."); location.reload(); }
+    else if (score === 50) { alert("MÖLKKY !"); location.reload(); }
+    else { resetBaton(); }
+}
+
+function resetBaton() {
+    Composite.remove(world, baton);
+    createBaton();
+}
+
+initMolkky();
+createBaton();
+window.addEventListener('resize', () => { location.reload(); });
+</script>
+</body>
+</html>
