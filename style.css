@@ -1,0 +1,61 @@
+body { 
+    margin: 0; 
+    overflow: hidden; 
+    /* Intégration du décor en arrière-plan */
+    background-image: url('decor.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    font-family: 'Segoe UI', sans-serif; 
+}
+
+#game-container { 
+    position: relative; 
+    width: 100vw; 
+    height: 100vh; 
+}
+
+canvas { 
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    display: block; 
+}
+
+/* On s'assure que le canvas de physique laisse voir le décor derrière */
+#matter-canvas { 
+    z-index: 1; 
+    background: transparent !important; 
+}
+
+#ui-canvas { 
+    z-index: 10; 
+    pointer-events: none; 
+}
+
+#hud {
+    position: absolute; 
+    top: 20px; 
+    width: 100%; 
+    text-align: center;
+    color: white; 
+    pointer-events: none; 
+    z-index: 20;
+}
+
+.score { 
+    font-size: 2.5rem; 
+    color: #FFD700; 
+    margin: 0; 
+    font-weight: bold; 
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); 
+}
+
+.stats { 
+    font-size: 0.9rem; 
+    background: rgba(0, 0, 0, 0.7); 
+    display: inline-block; 
+    padding: 8px 20px; 
+    border-radius: 20px; 
+    border: 1px solid rgba(255, 255, 255, 0.2); 
+}
